@@ -7,6 +7,7 @@ import type { Database } from '../db/types.js';
 import { definedOnly, idParamValidator, resolveExistingOnCreate } from '../lib/crud.js';
 import { maxDate, nextOccurrenceOnOrAfter, todayInLima, type Schedule } from '../lib/dates.js';
 import { ApiError, notFound, validationHook } from '../lib/errors.js';
+import { generateDueRecurring } from '../services/recurring-generator.js';
 import { requireCategory, requireDebtForPayment } from '../services/references.js';
 
 const SCHEDULE_FIELDS = ['frequency', 'dayOfMonth', 'startOn', 'endOn'] as const;
@@ -32,6 +33,11 @@ export function recurringRoutes(db: Database) {
         .where(isNull(recurring.deletedAt))
         .orderBy(asc(recurring.type), asc(recurring.nextRunOn), asc(recurring.name));
       return c.json(rows);
+    })
+
+    // Genera ahora los movimientos vencidos, sin esperar al cron diario
+    .post('/generate', async (c) => {
+      return c.json(await generateDueRecurring(db, todayInLima()));
     })
 
     .get('/:id', idParamValidator, async (c) => {

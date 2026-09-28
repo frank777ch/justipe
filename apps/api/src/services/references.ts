@@ -1,12 +1,12 @@
 import type { Currency, MovementType } from '@justipe/shared';
 import { and, desc, eq, isNull, lte } from 'drizzle-orm';
 import { categories, debts, exchangeRates, type Category, type Debt } from '../db/schema/index.js';
-import type { Database } from '../db/types.js';
+import type { DbExecutor } from '../db/types.js';
 import { ApiError } from '../lib/errors.js';
 
 // Validaciones de referencias compartidas por movimientos, recurrentes y montos rápidos.
 
-export async function requireCategory(db: Database, categoryId: string, expectedType: MovementType): Promise<Category> {
+export async function requireCategory(db: DbExecutor, categoryId: string, expectedType: MovementType): Promise<Category> {
   const [category] = await db
     .select()
     .from(categories)
@@ -28,7 +28,7 @@ export const PAYMENT_TYPE_BY_DIRECTION = {
 } as const satisfies Record<Debt['direction'], MovementType>;
 
 export async function requireDebtForPayment(
-  db: Database,
+  db: DbExecutor,
   debtId: string,
   payment: { type: MovementType; currency: Currency },
 ): Promise<Debt> {
@@ -60,7 +60,7 @@ export async function requireDebtForPayment(
 // - USD con TC enviado por la app: se respeta (edición manual).
 // - USD sin TC: la tasa de venta del día o, si no hay, la última anterior.
 export async function resolveExchangeRate(
-  db: Database,
+  db: DbExecutor,
   currency: Currency,
   occurredOn: string,
   provided?: string,

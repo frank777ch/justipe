@@ -8,6 +8,7 @@ import { errorBody, handleError } from './lib/errors.js';
 import { authRoutes, requireAuth } from './routes/auth.js';
 import { categoryRoutes } from './routes/categories.js';
 import { debtRoutes } from './routes/debts.js';
+import { exchangeRateRoutes } from './routes/exchange-rates.js';
 import { movementRoutes } from './routes/movements.js';
 import { quickAmountRoutes } from './routes/quick-amounts.js';
 import { recurringRoutes } from './routes/recurring.js';
@@ -32,7 +33,7 @@ export function createApp(db: Database, config: AppConfig) {
   app.route('/auth', authRoutes(config));
 
   // Rutas protegidas con JWT
-  const protectedPaths = ['/categories', '/movements', '/recurring', '/debts', '/quick-amounts'];
+  const protectedPaths = ['/categories', '/movements', '/recurring', '/debts', '/quick-amounts', '/exchange-rates'];
   const auth = requireAuth(config);
   for (const path of protectedPaths) {
     app.use(path, auth);
@@ -43,6 +44,7 @@ export function createApp(db: Database, config: AppConfig) {
   app.route('/recurring', recurringRoutes(db));
   app.route('/debts', debtRoutes(db));
   app.route('/quick-amounts', quickAmountRoutes(db));
+  app.route('/exchange-rates', exchangeRateRoutes(db, config.exchangeRateProvider));
 
   app.notFound((c) => c.json(errorBody('not_found', 'Ruta no encontrada'), 404));
   app.onError(handleError);

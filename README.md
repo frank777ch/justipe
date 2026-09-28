@@ -83,8 +83,13 @@ Todas las rutas, salvo `/health` y `/auth/login`, exigen `Authorization: Bearer 
 | GET/PATCH/DELETE | `/recurring/:id` | |
 | GET/POST | `/debts` | Listar (`?status=open\|closed\|all&direction=`) con `paidAmount` y `balance` |
 | GET/PATCH/DELETE | `/debts/:id` | |
+| POST | `/recurring/generate` | Genera ahora los recurrentes vencidos |
 | GET/POST | `/quick-amounts` | Montos rápidos |
 | PATCH/DELETE | `/quick-amounts/:id` | |
+| GET | `/exchange-rates` | Listar (`?from=&to=&limit=`) |
+| GET | `/exchange-rates/latest` | Tasa vigente para `?date=` (por defecto hoy) |
+| POST | `/exchange-rates/sync` | Consulta apis.net.pe ahora (`{ date? }`) |
+| PUT/DELETE | `/exchange-rates/:date` | Editar a mano `{ buy, sell }` / borrar |
 
 Convenciones:
 
@@ -106,6 +111,21 @@ Reglas de negocio:
 1. Edita los archivos en `apps/api/src/db/schema/`.
 2. `pnpm db:generate` genera la migración SQL en `apps/api/drizzle/`.
 3. Revisa el SQL y súbelo al repo. La API aplica las migraciones pendientes al arrancar (`MIGRATE_ON_START=true`).
+
+## Tareas programadas
+
+Corren dentro del proceso de la API con [croner](https://github.com/hexagon/croner), sin contenedor extra. Horarios en hora de Lima:
+
+| Tarea | Horario | Qué hace |
+|---|---|---|
+| Recurrentes | 00:05 | Crea los movimientos con `nextRunOn <= hoy`, incluidos los periodos atrasados. Es idempotente |
+| Tipo de cambio | 07:15, 12:15, 18:15 | Consulta SUNAT vía apis.net.pe y lo guarda. Los intentos extra sirven de reintento |
+| Al arrancar | — | Trae el tipo de cambio de hoy si falta y pone al día los recurrentes |
+
+- **Tasas manuales** (`PUT /exchange-rates/:date`): el cron nunca las sobrescribe. Para volver a la automática, borra la tasa con `DELETE`.
+- **Recurrente en USD sin tipo de cambio**: queda pendiente y se reintenta en la siguiente corrida. No avanza ni genera con una tasa inventada.
+- **Recurrente generado y luego borrado**: no se vuelve a crear.
+- **apis.net.pe**: el endpoint v1 funciona sin token, pero limita mucho las peticiones anónimas (429). Por eso se consulta una vez por día y al arrancar solo si falta la tasa. `APIS_NET_PE_TOKEN` es opcional.
 
 ## Producción (VPS)
 

@@ -174,6 +174,24 @@ export const quickAmountUpdateSchema = z
   })
   .partial();
 
+// --- Tipo de cambio ---
+// Edición manual de la tasa de un día: queda como source = 'manual' y el cron no la pisa
+export const exchangeRateUpsertSchema = z
+  .object({
+    buy: exchangeRateSchema,
+    sell: exchangeRateSchema,
+  })
+  .refine((value) => Number(value.buy) <= Number(value.sell), {
+    message: 'La compra no puede ser mayor que la venta',
+    path: ['buy'],
+  });
+
+export const exchangeRateListQuerySchema = z.object({
+  from: isoDateSchema.optional(),
+  to: isoDateSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(366).default(31),
+});
+
 // Tipos inferidos (salida ya validada y normalizada)
 export type LoginInput = z.infer<typeof loginSchema>;
 export type CategoryCreateInput = z.infer<typeof categoryCreateSchema>;
@@ -187,3 +205,5 @@ export type DebtCreateInput = z.infer<typeof debtCreateSchema>;
 export type DebtUpdateInput = z.infer<typeof debtUpdateSchema>;
 export type QuickAmountCreateInput = z.infer<typeof quickAmountCreateSchema>;
 export type QuickAmountUpdateInput = z.infer<typeof quickAmountUpdateSchema>;
+export type ExchangeRateUpsertInput = z.infer<typeof exchangeRateUpsertSchema>;
+export type ExchangeRateListQuery = z.infer<typeof exchangeRateListQuerySchema>;

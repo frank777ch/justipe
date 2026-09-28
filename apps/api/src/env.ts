@@ -54,4 +54,10 @@ export const env = {
   jwtSecret: jwtSecret(),
   appPasswordHash: passwordHash(),
   jwtTtlDays: integer('JWT_TTL_DAYS', 30),
+  // Tareas programadas (recurrentes y tipo de cambio)
+  jobsEnabled: boolean('JOBS_ENABLED', true),
+  // Consulta automática del tipo de cambio a apis.net.pe
+  exchangeRateSyncEnabled: boolean('EXCHANGE_RATE_SYNC_ENABLED', true),
+  apisNetPeUrl: process.env.APIS_NET_PE_URL || 'https://api.apis.net.pe/v1/tipo-cambio-sunat',
+  apisNetPeToken: process.env.APIS_NET_PE_TOKEN || undefined,
 } as const;
