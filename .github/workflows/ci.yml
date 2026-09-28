@@ -1,0 +1,62 @@
+# CI: typecheck de API y app, y tests de la API contra un PostgreSQL 16 real.
+# Corre en cada push y pull request, y lo reutiliza el workflow de deploy.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_call' }}
+
+jobs:
+  test:
+    name: Typecheck y tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: justipe
+          POSTGRES_PASSWORD: justipe
+          POSTGRES_DB: justipe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U justipe -d justipe"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Base desechable del runner; los tests la recrean en cada corrida
+      TEST_DATABASE_URL: postgres://justipe:justipe@localhost:5432/justipe_test
+      TZ: America/Lima
+    steps:
+      - uses: actions/checkout@v4
+
+      # Usa la versión de pnpm del campo "packageManager" del package.json
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck API
+        run: pnpm api:typecheck
+
+      - name: Typecheck app
+        run: pnpm mobile:typecheck
+
+      - name: Tests API
+        run: pnpm api:test

@@ -1,0 +1,135 @@
+# Deploy: al hacer push a main (o manualmente) pasa CI, construye la imagen de la API,
+# la publica en GHCR y la despliega en el VPS por SSH, con rollback automático si falla.
+#
+# Secretos del repositorio (Settings > Secrets and variables > Actions):
+#   VPS_HOST         IP o dominio del VPS
+#   VPS_USER         usuario SSH (debe poder usar docker)
+#   VPS_SSH_KEY      llave privada SSH exclusiva para el deploy
+#   VPS_KNOWN_HOSTS  salida de: ssh-keyscan -p <puerto> <host>  (fija la huella del servidor)
+# Variables opcionales (misma pantalla, pestaña Variables):
+#   VPS_PORT         puerto SSH (por defecto 22)
+#   DEPLOY_PATH      directorio en el VPS (por defecto /opt/justipe)
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'apps/mobile/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Nunca dos despliegues a la vez; tampoco se cancela uno en curso
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Construir imagen
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nombre de la imagen
+        id: meta
+        # GHCR exige minúsculas
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/justipe-api" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Desplegar en el VPS
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}:${{ github.sha }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/justipe' }}
+      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host vps
+            HostName ${{ secrets.VPS_HOST }}
+            User ${{ secrets.VPS_USER }}
+            Port $VPS_PORT
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          EOF
+
+      - name: Copiar compose y scripts
+        # Las rutas se expanden en el runner a propósito (SC2029)
+        run: |
+          # shellcheck disable=SC2029
+          ssh vps "mkdir -p '$DEPLOY_PATH/scripts' '$DEPLOY_PATH/backups'"
+          scp infra/docker-compose.yml "vps:$DEPLOY_PATH/docker-compose.yml"
+          scp infra/scripts/*.sh "vps:$DEPLOY_PATH/scripts/"
+          # shellcheck disable=SC2029
+          ssh vps "chmod +x '$DEPLOY_PATH'/scripts/*.sh"
+
+      - name: Iniciar sesión en GHCR desde el VPS
+        # El token del workflow solo vale durante este job; se pasa por stdin, no por la línea de comandos
+        run: printf '%s' "${{ secrets.GITHUB_TOKEN }}" | ssh vps "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+
+      - name: Desplegar
+        run: |
+          # shellcheck disable=SC2029
+          ssh vps "'$DEPLOY_PATH/scripts/deploy.sh' '$IMAGE'"
+
+      - name: Instalar cron de respaldos
+        run: |
+          # shellcheck disable=SC2029
+          ssh vps "'$DEPLOY_PATH/scripts/install-cron.sh'"
+
+      - name: Cerrar sesión en GHCR
+        if: always()
+        run: ssh vps "docker logout ghcr.io" || true

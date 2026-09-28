@@ -1,0 +1,10 @@
+# Override para construir la imagen de la API desde el código (desarrollo local).
+# En el VPS no se usa: allí la imagen viene ya construida desde GHCR.
+# Uso: pnpm compose:up
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    image: justipe-api:latest

@@ -22,9 +22,6 @@
       "expo-router",
       "expo-status-bar",
       "expo-secure-store"
-    ],
-    "experiments": {
-      "typedRoutes": true
-    }
+    ]
   }
 }

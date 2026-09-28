@@ -23,8 +23,11 @@ packages/
   shared/              esquemas Zod y tipos compartidos API ↔ app
 infra/
   docker-compose.yml       producción: api + postgres (< 400 MB RAM)
+  docker-compose.build.yml override local: construye la imagen desde el código
   docker-compose.dev.yml   override local: publica Postgres en localhost
   caddy/justipe.caddy      snippet para el Caddyfile del VPS
+  scripts/                 deploy, backup, restore e install-cron (se copian al VPS)
+.github/workflows/         ci.yml (tests) y deploy.yml (GHCR + SSH)
 ```
 
 ## Esquema de datos
@@ -189,12 +192,82 @@ Corren dentro del proceso de la API con [croner](https://github.com/hexagon/cron
 
 ## Producción (VPS)
 
+### Cómo funciona el deploy
+
+Al hacer push a `main` (o con *Run workflow* en la pestaña Actions), `.github/workflows/deploy.yml`:
+
+1. Corre CI: typecheck de API y app, y tests contra PostgreSQL 16.
+2. Construye la imagen de la API **en GitHub**, sin gastar la RAM del VPS, y la publica en GHCR como `ghcr.io/<usuario>/justipe-api:<commit>`.
+3. Entra por SSH al VPS, copia `docker-compose.yml` y `scripts/`, y ejecuta `scripts/deploy.sh <imagen>`.
+4. `deploy.sh` levanta la nueva versión y espera a que el healthcheck diga *healthy*. **Si no arranca, vuelve sola a la imagen anterior** y el workflow queda en rojo.
+5. Instala o actualiza el cron de respaldos.
+
+Los cambios que solo tocan `apps/mobile/` o archivos `.md` no disparan deploy. CI corre en cada push y PR.
+
+### Puesta en marcha (una sola vez)
+
+**1. En el VPS** (el usuario debe poder usar docker):
+
 ```bash
-cp .env.example .env          # valores reales, fuera del repo
-pnpm compose:up               # o: docker compose --env-file .env -f infra/docker-compose.yml up -d --build
-docker compose --env-file .env -f infra/docker-compose.yml exec api node dist/db/seed.js
+sudo mkdir -p /opt/justipe && sudo chown $USER /opt/justipe
+cd /opt/justipe
+nano .env    # copia el contenido de .env.example y completa los valores reales
+             # (APP_PASSWORD_HASH se genera en tu laptop con: pnpm hash-password)
+chmod 600 .env
 ```
 
-La API queda publicada solo en `127.0.0.1:3000`. Agrega `infra/caddy/justipe.caddy` a tu Caddyfile.
+Agrega `infra/caddy/justipe.caddy` a tu Caddyfile con tu dominio y recarga Caddy. La API queda solo en `127.0.0.1:3000` y Caddy le pone HTTPS.
 
-Límites de memoria: Postgres 256 MB y API 128 MB. En reposo se miden ~30 MB cada uno.
+**2. Llave SSH exclusiva para el deploy** (en tu laptop):
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/justipe_deploy -C "github-actions-justipe" -N ""
+ssh-copy-id -i ~/.ssh/justipe_deploy.pub usuario@tu-vps     # o pégala en ~/.ssh/authorized_keys
+ssh-keyscan -p 22 tu-vps                                     # huella del servidor para VPS_KNOWN_HOSTS
+```
+
+**3. En GitHub** → *Settings → Secrets and variables → Actions*:
+
+| Tipo | Nombre | Valor |
+|---|---|---|
+| Secret | `VPS_HOST` | IP o dominio del VPS |
+| Secret | `VPS_USER` | usuario SSH |
+| Secret | `VPS_SSH_KEY` | contenido de `~/.ssh/justipe_deploy` (la privada) |
+| Secret | `VPS_KNOWN_HOSTS` | salida de `ssh-keyscan` |
+| Variable (opcional) | `VPS_PORT` | puerto SSH si no es 22 |
+| Variable (opcional) | `DEPLOY_PATH` | si no usas `/opt/justipe` |
+
+No hace falta ningún token para GHCR: el workflow usa su token temporal y el VPS lo recibe solo durante el deploy.
+
+**4.** Haz merge a `main` o lanza el workflow a mano. Tras el primer deploy, carga las categorías iniciales:
+
+```bash
+cd /opt/justipe && docker compose --env-file .env --env-file .deploy.env exec api node dist/db/seed.js
+```
+
+### Operación diaria (en el VPS, dentro de `/opt/justipe`)
+
+| Tarea | Comando |
+|---|---|
+| Ver logs | `docker compose --env-file .env --env-file .deploy.env logs -f api` |
+| Versión desplegada | `cat .deploy.env` |
+| Rollback manual | `scripts/deploy.sh ghcr.io/<usuario>/justipe-api:<commit-anterior>` |
+| Respaldo ahora | `scripts/backup.sh` |
+| Restaurar | `scripts/restore.sh backups/justipe-AAAA-MM-DD_HHMMSS.sql.gz` (antes hace un respaldo de seguridad) |
+
+### Respaldos
+
+- **Cuándo**: cron diario a las 03:15 hora de Lima (08:15 UTC). Lo instala el deploy.
+- **Qué**: `pg_dump` comprimido con gzip en `backups/justipe-<fecha>.sql.gz`, con permisos 600. Se valida antes de darlo por bueno (gzip íntegro y esquema presente).
+- **Retención**: 30 días; los más antiguos se borran solos. El log queda en `backups/backup.log`.
+- **Importante**: los respaldos quedan **en el mismo VPS**. Para protegerte de perder el servidor, copia `backups/` a otro lugar de vez en cuando (por ejemplo, `rsync` a tu laptop o `rclone` a un almacenamiento externo).
+
+### Memoria
+
+Postgres está limitado a 256 MB y la API a 128 MB, 384 MB en total (el requisito es menos de 400). En reposo se miden unos 30 MB cada uno.
+
+### Probar el stack en local
+
+```bash
+pnpm compose:up     # construye la imagen desde el código (usa docker-compose.build.yml)
+```
