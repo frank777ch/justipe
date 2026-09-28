@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Category, Movement } from '../api/types';
 import { formatMoney } from '../lib/format';
@@ -30,6 +31,9 @@ export function MovementRow({
           <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
             {category?.name ?? 'Sin categoría'}
           </Text>
+          {movement._pending ? (
+            <Ionicons name="cloud-upload-outline" size={14} color={theme.textMuted} accessibilityLabel="Pendiente de sincronizar" />
+          ) : null}
           {movement.recurringId ? (
             <Text style={[styles.badge, { color: theme.textMuted, backgroundColor: theme.surfaceMuted }]}>Fijo</Text>
           ) : null}

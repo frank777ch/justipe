@@ -69,26 +69,54 @@ Vitest corre contra un Postgres real: crea la base `<tu_base>_test` (o usa `TEST
 
 ## App móvil (`apps/mobile`)
 
-Expo SDK 57 + expo-router + TanStack Query. El token y la URL del servidor se guardan en el llavero del sistema (expo-secure-store).
+Expo SDK 57 + expo-router + TanStack Query + MMKV. El token y la URL del servidor se guardan en el llavero del sistema (expo-secure-store).
 
 | Pantalla | Qué hace |
 |---|---|
 | Login | URL del servidor y contraseña |
 | Inicio | Cuánto puedes gastar por día, registro rápido, resumen del mes y últimos movimientos |
+| Calendario | Mes con el total gastado por día (más oscuro = más gasto). Toca un día para ver sus movimientos |
 | Movimientos | Mes agrupado por día con el total de cada día. Mantén presionado para borrar |
+| Deudas | "Lo que debo" (saldo, cuota) y "Me deben" (persona, fecha estimada). Detalle con pagos, registrar pago o cobro, cancelar |
 | Ajustes | Montos rápidos (agregar o quitar, con categoría fija opcional), servidor y cerrar sesión |
 | Otro (modal) | Gasto o ingreso de cualquier monto, en S/ o US$ (TC manual opcional), fecha y nota |
 
 **Registro rápido**: toca un monto y luego una categoría, y queda guardado con fecha de hoy. Si el monto tiene categoría fija, basta un solo toque. Durante 5 segundos aparece "Deshacer".
 
-### Probarla en tu celular (Expo Go)
+### Modo offline
 
-1. Levanta la API en tu laptop (ver *Desarrollo local*).
-2. `cp apps/mobile/.env.example apps/mobile/.env` y pon la IP de tu laptop en la red local: `EXPO_PUBLIC_API_URL=http://192.168.x.x:3000`.
-3. `pnpm mobile:start` y escanea el QR con **Expo Go** (celular y laptop en la misma red WiFi).
-4. Entra con la contraseña con la que generaste `APP_PASSWORD_HASH`.
+La app es *local-first*: guarda una copia de los datos en el teléfono (MMKV) y todas las pantallas leen de ahí, así que abre al instante y funciona sin red.
 
-Para probarla en el navegador: `pnpm mobile:web`, con `CORS_ORIGINS=http://localhost:8081` en el `.env` de la API.
+- **Cambios sin conexión** (gastos, deudas, montos rápidos): se aplican en el acto a la copia local y se encolan en una cola persistente (outbox). Se envían en orden cuando vuelve la conexión. El id se genera en el teléfono, así que un reintento no duplica nada.
+- **Cuándo sincroniza**: al abrir la app, después de cada cambio, al volver al primer plano, al tirar hacia abajo para actualizar, cada 30 s si hay pendientes y cada 5 min en cualquier caso.
+- **Qué trae del servidor**: `GET /sync?since=<cursor>` devuelve solo lo que cambió, incluidos los borrados.
+- **Cálculos**: dashboard, calendario y saldos de deudas se calculan en el teléfono con las mismas funciones que la API (`@justipe/shared`).
+- **Conflictos**: gana la última escritura. Si el servidor rechaza un cambio (por ejemplo, una categoría borrada), la app lo avisa y lo descarta.
+- **Tipo de cambio sin conexión**: un gasto en US$ usa la última tasa sincronizada. Si no hay ninguna, pide ingresarla a mano.
+- **Token vencido**: la app vuelve a pedir la contraseña y conserva los cambios pendientes. "Cerrar sesión" en Ajustes sí borra los datos del teléfono (avisa si hay pendientes).
+
+### Instalarla en tu celular (EAS Build)
+
+MMKV es código nativo, así que la app **ya no corre en Expo Go**. Necesita un *development build*: tu propia versión de Expo Go con los módulos nativos de la app. Se genera una sola vez en la nube con EAS:
+
+```bash
+npm install -g eas-cli
+eas login                        # cuenta gratuita en expo.dev
+cd apps/mobile
+eas init                         # crea el proyecto y escribe el projectId en app.json (súbelo al repo)
+pnpm build:dev                   # build Android en la nube (~10-15 min)
+```
+
+Al terminar, EAS muestra un QR o link para instalar el APK (hay que permitir "instalar apps desconocidas"). Después:
+
+1. Levanta la API (ver *Desarrollo local*) y pon la IP de tu laptop en `apps/mobile/.env`: `EXPO_PUBLIC_API_URL=http://192.168.x.x:3000`.
+2. `pnpm mobile:start` y abre la app **Justipe** instalada. Se conecta al servidor de desarrollo, con celular y laptop en la misma red WiFi.
+
+Solo hace falta volver a generar el build si cambian las dependencias nativas. Los cambios de código JS llegan al instante.
+
+Para una versión instalable sin laptop (`pnpm build:preview`), la API debe estar en **HTTPS** (fase 6, detrás de Caddy): Android bloquea HTTP en builds que no son de desarrollo.
+
+Vista previa en el navegador: `pnpm mobile:web`, con `CORS_ORIGINS=http://localhost:8081` en el `.env` de la API.
 
 ## API
 
@@ -108,6 +136,7 @@ Todas las rutas, salvo `/health` y `/auth/login`, exigen `Authorization: Bearer 
 | GET/PATCH/DELETE | `/debts/:id` | |
 | POST | `/recurring/generate` | Genera ahora los recurrentes vencidos |
 | GET | `/dashboard` | Resumen del mes (`?month=YYYY-MM`, por defecto el actual) |
+| GET | `/sync` | Copia completa, o cambios desde `?since=<cursor>` con borrados incluidos. Devuelve un `cursor` nuevo |
 | GET/POST | `/quick-amounts` | Montos rápidos |
 | PATCH/DELETE | `/quick-amounts/:id` | |
 | GET | `/exchange-rates` | Listar (`?from=&to=&limit=`) |

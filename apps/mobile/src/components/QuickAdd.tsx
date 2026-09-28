@@ -1,8 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { ApiRequestError } from '../api/client';
-import { useCategories, useCreateMovement, useDeleteMovement, useQuickAmounts } from '../api/hooks';
+import { useCategories, useCreateMovement, useDeleteMovement, useQuickAmounts } from '../data/hooks';
 import type { Category, Movement, QuickAmount } from '../api/types';
 import { currencySymbol, formatMoney, formatShortAmount, todayInLima } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
@@ -50,7 +49,7 @@ export function QuickAdd() {
       if (undoTimer.current) clearTimeout(undoTimer.current);
       undoTimer.current = setTimeout(() => setLastSaved(null), UNDO_TIMEOUT_MS);
     } catch (e) {
-      setError(e instanceof ApiRequestError ? e.message : 'No se pudo guardar');
+      setError(e instanceof Error ? e.message : 'No se pudo guardar');
     }
   }
 
@@ -67,6 +66,7 @@ export function QuickAdd() {
     if (undoTimer.current) clearTimeout(undoTimer.current);
     const { movement } = lastSaved;
     setLastSaved(null);
+    // Si aún no se envió al servidor, simplemente se descarta de la cola
     await deleteMovement.mutateAsync(movement.id).catch(() => setError('No se pudo deshacer'));
   }
 
@@ -105,7 +105,6 @@ export function QuickAdd() {
         </View>
       ) : null}
 
-      {createMovement.isPending ? <Muted>Guardando…</Muted> : null}
       {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
 
       {lastSaved ? (

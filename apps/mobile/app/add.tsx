@@ -2,8 +2,7 @@ import { exchangeRateSchema, moneySchema, type Currency, type MovementType } fro
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { ApiRequestError } from '../src/api/client';
-import { useCategories, useCreateMovement } from '../src/api/hooks';
+import { useCategories, useCreateMovement } from '../src/data/hooks';
 import { Button, Chip, Muted } from '../src/components/ui';
 import { addDays, currencySymbol, todayInLima } from '../src/lib/format';
 import { radius, spacing, useTheme } from '../src/theme';
@@ -55,7 +54,7 @@ export default function AddMovementScreen() {
       });
       router.back();
     } catch (e) {
-      setError(e instanceof ApiRequestError ? e.message : 'No se pudo guardar');
+      setError(e instanceof Error ? e.message : 'No se pudo guardar');
     }
   }
 

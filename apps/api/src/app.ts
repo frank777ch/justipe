@@ -14,6 +14,7 @@ import { exchangeRateRoutes } from './routes/exchange-rates.js';
 import { movementRoutes } from './routes/movements.js';
 import { quickAmountRoutes } from './routes/quick-amounts.js';
 import { recurringRoutes } from './routes/recurring.js';
+import { syncRoutes } from './routes/sync.js';
 
 // Construye la aplicación Hono. No lee process.env ni abre conexiones:
 // todo se inyecta, así index.ts y los tests la arman con su propia BD y config.
@@ -39,7 +40,7 @@ export function createApp(db: Database, config: AppConfig) {
   app.route('/auth', authRoutes(config));
 
   // Rutas protegidas con JWT
-  const protectedPaths = ['/categories', '/movements', '/recurring', '/debts', '/quick-amounts', '/exchange-rates', '/dashboard'];
+  const protectedPaths = ['/categories', '/movements', '/recurring', '/debts', '/quick-amounts', '/exchange-rates', '/dashboard', '/sync'];
   const auth = requireAuth(config);
   for (const path of protectedPaths) {
     app.use(path, auth);
@@ -51,6 +52,7 @@ export function createApp(db: Database, config: AppConfig) {
   app.route('/debts', debtRoutes(db));
   app.route('/quick-amounts', quickAmountRoutes(db));
   app.route('/dashboard', dashboardRoutes(db));
+  app.route('/sync', syncRoutes(db));
   app.route('/exchange-rates', exchangeRateRoutes(db, config.exchangeRateProvider));
 
   app.notFound((c) => c.json(errorBody('not_found', 'Ruta no encontrada'), 404));

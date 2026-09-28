@@ -2,8 +2,9 @@ import { moneySchema } from '@justipe/shared';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useCategories, useCreateQuickAmount, useDeleteQuickAmount, useQuickAmounts } from '../../src/api/hooks';
+import { useCategories, useCreateQuickAmount, useDeleteQuickAmount, useQuickAmounts } from '../../src/data/hooks';
 import { useAuth } from '../../src/auth/AuthProvider';
+import { useSyncState } from '../../src/offline/SyncProvider';
 import { Button, Card, Chip, confirmAction, Muted, SectionTitle } from '../../src/components/ui';
 import { formatMoney } from '../../src/lib/format';
 import { radius, spacing, useTheme } from '../../src/theme';
@@ -13,6 +14,7 @@ export default function SettingsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { apiUrl, logout } = useAuth();
+  const sync = useSyncState();
   const quickAmounts = useQuickAmounts();
   const categories = useCategories();
   const createQuickAmount = useCreateQuickAmount();
@@ -33,13 +35,9 @@ export default function SettingsScreen() {
     }
     setError(null);
     const nextOrder = Math.max(0, ...(quickAmounts.data ?? []).map((q) => q.sortOrder)) + 1;
-    await createQuickAmount
-      .mutateAsync({ amount: parsed.data, currency: 'PEN', categoryId, sortOrder: nextOrder })
-      .then(() => {
-        setAmount('');
-        setCategoryId(null);
-      })
-      .catch((e: Error) => setError(e.message));
+    await createQuickAmount.mutateAsync({ amount: parsed.data, currency: 'PEN', categoryId, sortOrder: nextOrder });
+    setAmount('');
+    setCategoryId(null);
   }
 
   return (
@@ -97,7 +95,7 @@ export default function SettingsScreen() {
           ))}
         </View>
         {error ? <Text style={{ color: theme.danger }}>{error}</Text> : null}
-        <Button label="Agregar monto" onPress={() => void addQuickAmount()} disabled={!amount} loading={createQuickAmount.isPending} />
+        <Button label="Agregar monto" onPress={() => void addQuickAmount()} disabled={!amount} />
       </Card>
 
       <SectionTitle>Servidor</SectionTitle>
@@ -105,7 +103,24 @@ export default function SettingsScreen() {
         <Text style={{ color: theme.text }} selectable>
           {apiUrl}
         </Text>
-        <Button label="Cerrar sesión" variant="secondary" onPress={() => void logout()} />
+        <Muted>
+          {sync.lastSyncAt ? `Última sincronización: ${new Date(sync.lastSyncAt).toLocaleString('es-PE')}` : 'Aún no sincroniza'}
+          {sync.pending > 0 ? ` · ${sync.pending} cambio(s) pendiente(s)` : ''}
+        </Muted>
+        <Button
+          label="Cerrar sesión"
+          variant="secondary"
+          onPress={() =>
+            confirmAction(
+              'Cerrar sesión',
+              sync.pending > 0
+                ? `Tienes ${sync.pending} cambio(s) sin sincronizar que se perderán. Se borrarán los datos guardados en este teléfono.`
+                : 'Se borrarán los datos guardados en este teléfono (siguen en el servidor).',
+              'Cerrar sesión',
+              () => void logout({ clearData: true }),
+            )
+          }
+        />
       </Card>
     </ScrollView>
   );

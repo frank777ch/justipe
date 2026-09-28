@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useCategoryMap, useDeleteMovement, useMovements } from '../../src/api/hooks';
+import { useCategoryMap, useDeleteMovement, useMovements } from '../../src/data/hooks';
 import type { Movement } from '../../src/api/types';
 import { MovementRow } from '../../src/components/MovementRow';
-import { confirmAction, ErrorView, MonthSwitcher, Muted } from '../../src/components/ui';
+import { confirmAction, MonthSwitcher, Muted } from '../../src/components/ui';
+import { useSyncNow } from '../../src/offline/SyncProvider';
 import { currentMonth, formatDay, formatMoney, shiftMonth } from '../../src/lib/format';
 import { spacing, useTheme } from '../../src/theme';
 
@@ -17,6 +18,7 @@ export default function MovementsScreen() {
   const movements = useMovements(month);
   const categoryMap = useCategoryMap();
   const deleteMovement = useDeleteMovement();
+  const { refreshing, onRefresh } = useSyncNow();
 
   const sections = useMemo(() => groupByDay(movements.data ?? []), [movements.data]);
 
@@ -38,12 +40,11 @@ export default function MovementsScreen() {
       keyExtractor={(item) => item.id}
       stickySectionHeadersEnabled={false}
       refreshControl={
-        <RefreshControl refreshing={movements.isRefetching} onRefresh={() => void movements.refetch()} tintColor={theme.primary} />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
       }
       ListHeaderComponent={
         <View style={{ gap: spacing.md, marginBottom: spacing.sm }}>
           <MonthSwitcher month={month} onChange={(delta) => setMonth((m) => shiftMonth(m, delta))} />
-          {movements.error ? <ErrorView message={movements.error.message} onRetry={() => void movements.refetch()} /> : null}
           {movements.data?.length === 0 ? <Muted>Sin movimientos este mes.</Muted> : null}
         </View>
       }

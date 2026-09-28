@@ -3,6 +3,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { ApiRequestError, createApiRequest, normalizeBaseUrl, type ApiRequest } from '../api/client';
 import type { LoginResponse } from '../api/types';
 import { getItem, removeItem, setItem, storageKeys } from '../lib/storage';
+import { localDb } from '../offline/localDb';
+import { syncEngine } from '../offline/syncEngine';
 
 // Sesión del único usuario: URL de la API + JWT guardados en el almacenamiento seguro.
 
@@ -16,7 +18,8 @@ interface AuthContextValue {
   // Cliente autenticado; lanza ApiRequestError
   api: ApiRequest;
   login: (apiUrl: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  // clearData: borra también la copia local y los cambios pendientes
+  logout: (options?: { clearData?: boolean }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -37,12 +40,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const logout = useCallback(async () => {
-    await removeItem(storageKeys.token);
-    setToken(null);
-    setStatus('signedOut');
-    queryClient.clear();
-  }, [queryClient]);
+  const logout = useCallback(
+    async ({ clearData = false }: { clearData?: boolean } = {}) => {
+      await removeItem(storageKeys.token);
+      if (clearData) {
+        localDb.clear();
+        syncEngine.reset();
+        queryClient.clear();
+      }
+      setToken(null);
+      setStatus('signedOut');
+    },
+    [queryClient],
+  );
 
   const login = useCallback(async (url: string, password: string) => {
     const baseUrl = normalizeBaseUrl(url);
@@ -51,13 +61,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const request = createApiRequest({ baseUrl, token: null });
     const { token: newToken } = await request<LoginResponse>('POST', '/auth/login', { password });
+    // Si cambia el servidor, la copia local ya no corresponde
+    const previousUrl = await getItem(storageKeys.apiUrl);
+    if (previousUrl && previousUrl !== baseUrl) {
+      localDb.clear();
+      syncEngine.reset();
+      queryClient.clear();
+    }
     await Promise.all([setItem(storageKeys.token, newToken), setItem(storageKeys.apiUrl, baseUrl)]);
     setApiUrl(baseUrl);
     setToken(newToken);
     setStatus('signedIn');
-  }, []);
+  }, [queryClient]);
 
   const api = useMemo(
+    // Token vencido: se pide la contraseña otra vez, pero se conservan los datos y pendientes
     () => createApiRequest({ baseUrl: apiUrl, token, onUnauthorized: () => void logout() }),
     [apiUrl, token, logout],
   );

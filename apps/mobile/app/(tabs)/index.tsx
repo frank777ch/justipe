@@ -2,11 +2,13 @@ import { Link } from 'expo-router';
 import { useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useCategoryMap, useDashboard, useMovements } from '../../src/api/hooks';
+import { useCategoryMap, useDashboard, useMovements } from '../../src/data/hooks';
 import type { DashboardSummary } from '../../src/api/types';
 import { MovementRow } from '../../src/components/MovementRow';
 import { QuickAdd } from '../../src/components/QuickAdd';
-import { Card, ErrorView, MonthSwitcher, Muted, SectionTitle } from '../../src/components/ui';
+import { SyncBanner } from '../../src/components/SyncBanner';
+import { Card, MonthSwitcher, Muted, SectionTitle } from '../../src/components/ui';
+import { useSyncNow } from '../../src/offline/SyncProvider';
 import { currentMonth, formatMoney, shiftMonth } from '../../src/lib/format';
 import { radius, spacing, useTheme, type Theme } from '../../src/theme';
 
@@ -20,22 +22,18 @@ export default function DashboardScreen() {
   const categoryMap = useCategoryMap();
   const isCurrentMonth = month === currentMonth();
 
-  const refreshing = dashboard.isRefetching || movements.isRefetching;
-  const refresh = () => void Promise.all([dashboard.refetch(), movements.refetch()]);
+  const { refreshing, onRefresh } = useSyncNow();
 
   return (
     <ScrollView
       style={{ backgroundColor: theme.background }}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={theme.primary} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
     >
+      <SyncBanner />
       <MonthSwitcher month={month} onChange={(delta) => setMonth((m) => shiftMonth(m, delta))} />
 
-      {dashboard.error ? (
-        <ErrorView message={dashboard.error.message} onRetry={refresh} />
-      ) : (
-        <Hero summary={dashboard.data} theme={theme} />
-      )}
+      <Hero summary={dashboard.data} theme={theme} />
 
       {isCurrentMonth ? <QuickAdd /> : null}
 

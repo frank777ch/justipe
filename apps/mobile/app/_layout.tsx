@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { ApiRequestError } from '../src/api/client';
 import { AuthProvider, useAuth } from '../src/auth/AuthProvider';
 import { LoadingView } from '../src/components/ui';
+import { SyncProvider } from '../src/offline/SyncProvider';
 import { useTheme } from '../src/theme';
 
 // Layout raíz: proveedores globales y navegación protegida por sesión
@@ -13,7 +14,10 @@ export default function RootLayout() {
     () =>
       new QueryClient({
         defaultOptions: {
+          // Los datos se leen de la copia local: no dependen de la red
+          mutations: { networkMode: 'always' },
           queries: {
+            networkMode: 'always',
             staleTime: 30_000,
             // No reintentar errores del cliente (401, 404, 422): solo fallos de red o servidor
             retry: (failureCount, error) =>
@@ -26,7 +30,9 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <RootNavigator />
+        <SyncProvider>
+          <RootNavigator />
+        </SyncProvider>
       </AuthProvider>
     </QueryClientProvider>
   );
@@ -52,6 +58,8 @@ function RootNavigator() {
         <Stack.Protected guard={signedIn}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="add" options={{ presentation: 'modal', headerShown: true, title: 'Nuevo movimiento' }} />
+          <Stack.Screen name="debt/new" options={{ presentation: 'modal', headerShown: true, title: 'Nueva deuda' }} />
+          <Stack.Screen name="debt/[id]" options={{ presentation: 'modal', headerShown: true, title: 'Deuda' }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="login" />

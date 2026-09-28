@@ -1,8 +1,20 @@
-import type { Currency, MovementType } from '@justipe/shared';
+import type { Currency, DebtDirection, Frequency, MovementType } from '@justipe/shared';
 
-// Formas de las respuestas de la API. Los montos llegan como strings decimales.
+export type { DashboardSummary } from '@justipe/shared';
 
-export interface Category {
+// Formas de los registros tal como llegan de la API (montos como strings decimales,
+// fechas de auditoría como ISO). En el teléfono se guardan igual, más la marca
+// "_pending" cuando el cambio local aún no llegó al servidor.
+
+interface SyncFields {
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  // Solo local: creado o modificado offline y todavía sin confirmar por el servidor
+  _pending?: boolean;
+}
+
+export interface Category extends SyncFields {
   id: string;
   name: string;
   type: MovementType;
@@ -11,7 +23,7 @@ export interface Category {
   sortOrder: number;
 }
 
-export interface Movement {
+export interface Movement extends SyncFields {
   id: string;
   type: MovementType;
   categoryId: string;
@@ -23,10 +35,9 @@ export interface Movement {
   note: string | null;
   recurringId: string | null;
   debtId: string | null;
-  createdAt: string;
 }
 
-export interface QuickAmount {
+export interface QuickAmount extends SyncFields {
   id: string;
   amount: string;
   currency: Currency;
@@ -34,24 +45,57 @@ export interface QuickAmount {
   sortOrder: number;
 }
 
-export interface DashboardSummary {
-  month: string;
-  from: string;
-  to: string;
-  today: string;
-  income: string;
-  fixedExpenses: string;
-  variableExpenses: string;
-  totalExpenses: string;
-  remaining: string;
-  pendingIncome: string;
-  pendingFixedExpenses: string;
-  projectedRemaining: string;
-  daysLeft: number;
-  dailyBudget: string | null;
+export interface Recurring extends SyncFields {
+  id: string;
+  name: string;
+  type: MovementType;
+  categoryId: string;
+  amountOriginal: string;
+  currency: Currency;
+  frequency: Frequency;
+  dayOfMonth: number | null;
+  startOn: string;
+  endOn: string | null;
+  nextRunOn: string;
+  active: boolean;
+  debtId: string | null;
+}
+
+export interface Debt extends SyncFields {
+  id: string;
+  direction: DebtDirection;
+  counterparty: string;
+  description: string | null;
+  initialAmount: string;
+  currency: Currency;
+  installment: string | null;
+  expectedOn: string | null;
+  closedOn: string | null;
+}
+
+export interface ExchangeRate {
+  rateDate: string;
+  buy: string;
+  sell: string;
+  source: 'api' | 'manual';
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface LoginResponse {
   token: string;
   expiresAt: string;
+}
+
+export interface SyncResponse {
+  full: boolean;
+  cursor: string;
+  changes: {
+    categories: Category[];
+    movements: Movement[];
+    recurring: Recurring[];
+    debts: Debt[];
+    quickAmounts: QuickAmount[];
+    exchangeRates: ExchangeRate[];
+  };
 }
