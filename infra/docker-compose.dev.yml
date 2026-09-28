@@ -1,0 +1,8 @@
+# Override para desarrollo local: publica Postgres en localhost para usar
+# pnpm api:dev, pnpm db:migrate y drizzle-kit desde tu máquina.
+# Uso: pnpm compose:dev
+
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
