@@ -21,6 +21,7 @@ const app = createApp(db, {
   passwordHash: env.appPasswordHash,
   tokenTtlDays: env.jwtTtlDays,
   exchangeRateProvider,
+  corsOrigins: env.corsOrigins,
 });
 
 const server = serve({ fetch: app.fetch, port: env.port }, (info) => {

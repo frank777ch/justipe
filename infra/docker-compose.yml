@@ -77,6 +77,7 @@ services:
       EXCHANGE_RATE_SYNC_ENABLED: ${EXCHANGE_RATE_SYNC_ENABLED:-true}
       APIS_NET_PE_URL: ${APIS_NET_PE_URL:-https://api.apis.net.pe/v1/tipo-cambio-sunat}
       APIS_NET_PE_TOKEN: ${APIS_NET_PE_TOKEN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       TZ: America/Lima
       NODE_OPTIONS: --max-old-space-size=96
     # Caddy en el host hace reverse_proxy a 127.0.0.1:${API_PORT}

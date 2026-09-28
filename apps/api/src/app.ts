@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 import { sql } from 'drizzle-orm';
 import type { AppConfig } from './config.js';
@@ -7,6 +8,7 @@ import type { Database } from './db/types.js';
 import { errorBody, handleError } from './lib/errors.js';
 import { authRoutes, requireAuth } from './routes/auth.js';
 import { categoryRoutes } from './routes/categories.js';
+import { dashboardRoutes } from './routes/dashboard.js';
 import { debtRoutes } from './routes/debts.js';
 import { exchangeRateRoutes } from './routes/exchange-rates.js';
 import { movementRoutes } from './routes/movements.js';
@@ -19,6 +21,10 @@ export function createApp(db: Database, config: AppConfig) {
   const app = new Hono();
 
   app.use(secureHeaders());
+  // CORS solo para la versión web de la app (la app nativa no lo necesita)
+  if (config.corsOrigins && config.corsOrigins.length > 0) {
+    app.use(cors({ origin: config.corsOrigins, allowHeaders: ['authorization', 'content-type'], maxAge: 600 }));
+  }
   app.use(bodyLimit({ maxSize: 256 * 1024 }));
 
   // Rutas públicas
@@ -33,7 +39,7 @@ export function createApp(db: Database, config: AppConfig) {
   app.route('/auth', authRoutes(config));
 
   // Rutas protegidas con JWT
-  const protectedPaths = ['/categories', '/movements', '/recurring', '/debts', '/quick-amounts', '/exchange-rates'];
+  const protectedPaths = ['/categories', '/movements', '/recurring', '/debts', '/quick-amounts', '/exchange-rates', '/dashboard'];
   const auth = requireAuth(config);
   for (const path of protectedPaths) {
     app.use(path, auth);
@@ -44,6 +50,7 @@ export function createApp(db: Database, config: AppConfig) {
   app.route('/recurring', recurringRoutes(db));
   app.route('/debts', debtRoutes(db));
   app.route('/quick-amounts', quickAmountRoutes(db));
+  app.route('/dashboard', dashboardRoutes(db));
   app.route('/exchange-rates', exchangeRateRoutes(db, config.exchangeRateProvider));
 
   app.notFound((c) => c.json(errorBody('not_found', 'Ruta no encontrada'), 404));

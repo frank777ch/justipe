@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Justipe",
+    "slug": "justipe",
+    "version": "0.1.0",
+    "scheme": "justipe",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "pe.justipe.app",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "pe.justipe.app",
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

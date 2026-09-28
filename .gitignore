@@ -10,8 +10,9 @@ dist/
 .env.*
 !.env.example
 
-# Expo (fase 4)
+# Expo
 .expo/
+expo-env.d.ts
 apps/mobile/ios/
 apps/mobile/android/
 

@@ -60,4 +60,9 @@ export const env = {
   exchangeRateSyncEnabled: boolean('EXCHANGE_RATE_SYNC_ENABLED', true),
   apisNetPeUrl: process.env.APIS_NET_PE_URL || 'https://api.apis.net.pe/v1/tipo-cambio-sunat',
   apisNetPeToken: process.env.APIS_NET_PE_TOKEN || undefined,
+  // Lista separada por comas, ej: http://localhost:8081
+  corsOrigins: (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 } as const;

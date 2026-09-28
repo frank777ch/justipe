@@ -18,7 +18,7 @@ apps/
   api/                 API Hono + Drizzle
     src/db/schema/     esquema de la BD (un archivo por dominio)
     drizzle/           migraciones SQL generadas (versionadas)
-  mobile/              app Expo (fase 4)
+  mobile/              app Expo (expo-router + TanStack Query)
 packages/
   shared/              esquemas Zod y tipos compartidos API ↔ app
 infra/
@@ -67,6 +67,29 @@ pnpm api:test
 
 Vitest corre contra un Postgres real: crea la base `<tu_base>_test` (o usa `TEST_DATABASE_URL`), la vacía y aplica las migraciones en cada corrida. Por seguridad, se niega a correr si el nombre de la base no termina en `_test`.
 
+## App móvil (`apps/mobile`)
+
+Expo SDK 57 + expo-router + TanStack Query. El token y la URL del servidor se guardan en el llavero del sistema (expo-secure-store).
+
+| Pantalla | Qué hace |
+|---|---|
+| Login | URL del servidor y contraseña |
+| Inicio | Cuánto puedes gastar por día, registro rápido, resumen del mes y últimos movimientos |
+| Movimientos | Mes agrupado por día con el total de cada día. Mantén presionado para borrar |
+| Ajustes | Montos rápidos (agregar o quitar, con categoría fija opcional), servidor y cerrar sesión |
+| Otro (modal) | Gasto o ingreso de cualquier monto, en S/ o US$ (TC manual opcional), fecha y nota |
+
+**Registro rápido**: toca un monto y luego una categoría, y queda guardado con fecha de hoy. Si el monto tiene categoría fija, basta un solo toque. Durante 5 segundos aparece "Deshacer".
+
+### Probarla en tu celular (Expo Go)
+
+1. Levanta la API en tu laptop (ver *Desarrollo local*).
+2. `cp apps/mobile/.env.example apps/mobile/.env` y pon la IP de tu laptop en la red local: `EXPO_PUBLIC_API_URL=http://192.168.x.x:3000`.
+3. `pnpm mobile:start` y escanea el QR con **Expo Go** (celular y laptop en la misma red WiFi).
+4. Entra con la contraseña con la que generaste `APP_PASSWORD_HASH`.
+
+Para probarla en el navegador: `pnpm mobile:web`, con `CORS_ORIGINS=http://localhost:8081` en el `.env` de la API.
+
 ## API
 
 Todas las rutas, salvo `/health` y `/auth/login`, exigen `Authorization: Bearer <token>`.
@@ -84,6 +107,7 @@ Todas las rutas, salvo `/health` y `/auth/login`, exigen `Authorization: Bearer 
 | GET/POST | `/debts` | Listar (`?status=open\|closed\|all&direction=`) con `paidAmount` y `balance` |
 | GET/PATCH/DELETE | `/debts/:id` | |
 | POST | `/recurring/generate` | Genera ahora los recurrentes vencidos |
+| GET | `/dashboard` | Resumen del mes (`?month=YYYY-MM`, por defecto el actual) |
 | GET/POST | `/quick-amounts` | Montos rápidos |
 | PATCH/DELETE | `/quick-amounts/:id` | |
 | GET | `/exchange-rates` | Listar (`?from=&to=&limit=`) |
@@ -111,6 +135,13 @@ Reglas de negocio:
 1. Edita los archivos en `apps/api/src/db/schema/`.
 2. `pnpm db:generate` genera la migración SQL en `apps/api/drizzle/`.
 3. Revisa el SQL y súbelo al repo. La API aplica las migraciones pendientes al arrancar (`MIGRATE_ON_START=true`).
+
+### Dashboard
+
+- **Fijo** = movimiento generado por un recurrente; **variable** = el resto.
+- **Te queda** = ingresos − gastos del mes.
+- **Puedes gastar por día** = (te queda − gastos fijos que aún faltan en el mes) ÷ días restantes, incluido hoy, redondeado hacia abajo y nunca negativo.
+- **Ingresos por venir** (por ejemplo, la quincena del 30) se muestran, pero **no se cuentan** en el presupuesto diario hasta que llegan. Es un criterio conservador.
 
 ## Tareas programadas
 

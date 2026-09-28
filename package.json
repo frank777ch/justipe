@@ -18,6 +18,9 @@
     "compose:logs": "docker compose --env-file .env -f infra/docker-compose.yml logs -f",
     "compose:dev": "docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d db",
     "api:test": "pnpm --filter @justipe/api test",
-    "hash-password": "pnpm --filter @justipe/api hash-password"
+    "hash-password": "pnpm --filter @justipe/api hash-password",
+    "mobile:start": "pnpm --filter @justipe/shared build && pnpm --filter @justipe/mobile start",
+    "mobile:web": "pnpm --filter @justipe/shared build && pnpm --filter @justipe/mobile web",
+    "mobile:typecheck": "pnpm --filter @justipe/mobile typecheck"
   }
 }

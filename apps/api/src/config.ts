@@ -10,4 +10,6 @@ export interface AppConfig {
   tokenTtlDays: number;
   // Fuente del tipo de cambio; si falta, POST /exchange-rates/sync responde 503
   exchangeRateProvider?: ExchangeRateProvider;
+  // Orígenes permitidos por CORS (solo para la versión web de la app)
+  corsOrigins?: string[];
 }
