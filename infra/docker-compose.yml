@@ -1,0 +1,99 @@
+# Producción: API + PostgreSQL detrás del Caddy existente del VPS.
+# En el VPS este archivo vive en el directorio de despliegue (p. ej. /opt/justipe)
+# junto al .env; la imagen de la API la construye GitHub Actions y se descarga de GHCR.
+# Para construir la imagen en local, combínalo con docker-compose.build.yml (pnpm compose:up).
+# Presupuesto de RAM: db 256 MB + api 128 MB = 384 MB (< 400 MB).
+
+name: justipe
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Falta POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Falta POSTGRES_DB en .env}
+      TZ: America/Lima
+      PGTZ: America/Lima
+    # Ajustes para poca memoria. shared_buffers + work_mem * conexiones cabe holgado en 256 MB.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - effective_cache_size=128MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=16MB
+      - -c
+      - max_connections=20
+      - -c
+      - max_parallel_workers_per_gather=0
+      - -c
+      - autovacuum_max_workers=2
+      - -c
+      - jit=off
+      - -c
+      - max_wal_size=256MB
+      - -c
+      - min_wal_size=64MB
+      - -c
+      - timezone=America/Lima
+      - -c
+      - log_timezone=America/Lima
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 256m
+    networks:
+      - internal
+    # Sin "ports": Postgres no se expone fuera de la red de Docker
+
+  api:
+    # Lo fija deploy.sh en .deploy.env (ghcr.io/<usuario>/justipe-api:<commit>)
+    image: ${API_IMAGE:-justipe-api:latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DB_POOL_MAX: ${DB_POOL_MAX:-5}
+      MIGRATE_ON_START: ${MIGRATE_ON_START:-true}
+      JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+      APP_PASSWORD_HASH: ${APP_PASSWORD_HASH:?Falta APP_PASSWORD_HASH en .env}
+      JWT_TTL_DAYS: ${JWT_TTL_DAYS:-30}
+      JOBS_ENABLED: ${JOBS_ENABLED:-true}
+      EXCHANGE_RATE_SYNC_ENABLED: ${EXCHANGE_RATE_SYNC_ENABLED:-true}
+      APIS_NET_PE_URL: ${APIS_NET_PE_URL:-https://api.apis.net.pe/v1/tipo-cambio-sunat}
+      APIS_NET_PE_TOKEN: ${APIS_NET_PE_TOKEN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      TZ: America/Lima
+      NODE_OPTIONS: --max-old-space-size=96
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Caddy en el host hace reverse_proxy a 127.0.0.1:${API_PORT}
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
+    mem_limit: 128m
+    networks:
+      - internal
+
+volumes:
+  pgdata:
+
+networks:
+  internal:

@@ -1,0 +1,26 @@
+{
+  "name": "justipe",
+  "private": true,
+  "description": "App personal de control de gastos",
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "api:dev": "pnpm --filter @justipe/api dev",
+    "api:build": "pnpm --filter @justipe/api build",
+    "api:typecheck": "pnpm --filter @justipe/api typecheck",
+    "db:generate": "pnpm --filter @justipe/api db:generate",
+    "db:migrate": "pnpm --filter @justipe/api db:migrate",
+    "db:seed": "pnpm --filter @justipe/api db:seed",
+    "compose:up": "docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.build.yml up -d --build",
+    "compose:down": "docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.build.yml down",
+    "compose:logs": "docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.build.yml logs -f",
+    "compose:dev": "docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d db",
+    "api:test": "pnpm --filter @justipe/api test",
+    "hash-password": "pnpm --filter @justipe/api hash-password",
+    "mobile:start": "pnpm --filter @justipe/shared build && pnpm --filter @justipe/mobile start",
+    "mobile:web": "pnpm --filter @justipe/shared build && pnpm --filter @justipe/mobile web",
+    "mobile:typecheck": "pnpm --filter @justipe/mobile typecheck"
+  }
+}

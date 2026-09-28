@@ -1,0 +1,40 @@
+{
+  "name": "@justipe/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist",
+    "drizzle"
+  ],
+  "scripts": {
+    "dev": "pnpm --filter @justipe/shared build && tsx watch --env-file=../../.env src/index.ts",
+    "build": "pnpm --filter @justipe/shared build && tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "pnpm --filter @justipe/shared build && tsc --noEmit",
+    "test": "pnpm --filter @justipe/shared build && vitest run",
+    "test:watch": "vitest",
+    "hash-password": "tsx src/scripts/hash-password.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit check",
+    "db:migrate": "tsx --env-file=../../.env src/db/migrate.ts",
+    "db:seed": "tsx --env-file=../../.env src/db/seed.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@hono/zod-validator": "^0.9.1",
+    "@justipe/shared": "workspace:*",
+    "croner": "^10.0.1",
+    "drizzle-orm": "^0.45.3",
+    "hono": "^4.13.10",
+    "postgres": "^3.4.9",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.2"
+  }
+}

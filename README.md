@@ -1,1 +1,273 @@
 # justipe
+
+App móvil personal para controlar gastos. Un solo usuario, multimoneda (S/ y US$), offline-first.
+
+## Stack
+
+| Capa | Tecnología |
+|---|---|
+| App | Expo (React Native) + expo-router + TypeScript, TanStack Query + MMKV |
+| API | Hono + Drizzle ORM + TypeScript (Node 22) |
+| BD | PostgreSQL 16 |
+| Deploy | Docker Compose detrás de Caddy, GitHub Actions por SSH |
+
+## Estructura
+
+```
+apps/
+  api/                 API Hono + Drizzle
+    src/db/schema/     esquema de la BD (un archivo por dominio)
+    drizzle/           migraciones SQL generadas (versionadas)
+  mobile/              app Expo (expo-router + TanStack Query)
+packages/
+  shared/              esquemas Zod y tipos compartidos API ↔ app
+infra/
+  docker-compose.yml       producción: api + postgres (< 400 MB RAM)
+  docker-compose.build.yml override local: construye la imagen desde el código
+  docker-compose.dev.yml   override local: publica Postgres en localhost
+  caddy/justipe.caddy      snippet para el Caddyfile del VPS
+  scripts/                 deploy, backup, restore e install-cron (se copian al VPS)
+.github/workflows/         ci.yml (tests) y deploy.yml (GHCR + SSH)
+```
+
+## Esquema de datos
+
+| Tabla | Propósito |
+|---|---|
+| `categories` | Categorías de gasto/ingreso |
+| `movements` | Cada gasto o ingreso: `amount_original`, `currency`, `exchange_rate`, `amount_pen` (generada) |
+| `recurring` | Plantillas recurrentes (mensual o quincenal: días 15 y fin de mes) |
+| `debts` | Deudas en ambas direcciones; el saldo se calcula a partir de los movimientos con `debt_id` |
+| `exchange_rates` | Tipo de cambio USD→PEN por día (`api` o `manual`) |
+| `quick_amounts` | Botones de montos frecuentes para el registro rápido |
+
+Reglas clave:
+
+- Los ids son UUID generados por el cliente, lo que permite crear registros offline.
+- Todas las tablas sincronizables tienen `created_at`, `updated_at` (lo mantiene un trigger) y `deleted_at` (borrado lógico).
+- **Gasto fijo** = movimiento con `recurring_id`; **variable** = sin él.
+- `amount_pen = round(amount_original * exchange_rate, 2)`, garantizado por Postgres.
+
+## Desarrollo local
+
+Requisitos: Node 22, pnpm 10 (`corepack enable`), Docker.
+
+```bash
+cp .env.example .env          # completa POSTGRES_PASSWORD, DATABASE_URL y JWT_SECRET
+pnpm install
+pnpm hash-password            # pega el resultado como APP_PASSWORD_HASH en .env
+pnpm compose:dev              # levanta solo Postgres en 127.0.0.1:5432
+pnpm db:migrate               # aplica migraciones
+pnpm db:seed                  # categorías y montos rápidos iniciales
+pnpm api:dev                  # API en http://localhost:3000/health
+```
+
+### Tests
+
+```bash
+pnpm api:test
+```
+
+Vitest corre contra un Postgres real: crea la base `<tu_base>_test` (o usa `TEST_DATABASE_URL`), la vacía y aplica las migraciones en cada corrida. Por seguridad, se niega a correr si el nombre de la base no termina en `_test`.
+
+## App móvil (`apps/mobile`)
+
+Expo SDK 57 + expo-router + TanStack Query + MMKV. El token y la URL del servidor se guardan en el llavero del sistema (expo-secure-store).
+
+| Pantalla | Qué hace |
+|---|---|
+| Login | URL del servidor y contraseña |
+| Inicio | Cuánto puedes gastar por día, registro rápido, resumen del mes y últimos movimientos |
+| Calendario | Mes con el total gastado por día (más oscuro = más gasto). Toca un día para ver sus movimientos |
+| Movimientos | Mes agrupado por día con el total de cada día. Mantén presionado para borrar |
+| Deudas | "Lo que debo" (saldo, cuota) y "Me deben" (persona, fecha estimada). Detalle con pagos, registrar pago o cobro, cancelar |
+| Ajustes | Montos rápidos (agregar o quitar, con categoría fija opcional), servidor y cerrar sesión |
+| Otro (modal) | Gasto o ingreso de cualquier monto, en S/ o US$ (TC manual opcional), fecha y nota |
+
+**Registro rápido**: toca un monto y luego una categoría, y queda guardado con fecha de hoy. Si el monto tiene categoría fija, basta un solo toque. Durante 5 segundos aparece "Deshacer".
+
+### Modo offline
+
+La app es *local-first*: guarda una copia de los datos en el teléfono (MMKV) y todas las pantallas leen de ahí, así que abre al instante y funciona sin red.
+
+- **Cambios sin conexión** (gastos, deudas, montos rápidos): se aplican en el acto a la copia local y se encolan en una cola persistente (outbox). Se envían en orden cuando vuelve la conexión. El id se genera en el teléfono, así que un reintento no duplica nada.
+- **Cuándo sincroniza**: al abrir la app, después de cada cambio, al volver al primer plano, al tirar hacia abajo para actualizar, cada 30 s si hay pendientes y cada 5 min en cualquier caso.
+- **Qué trae del servidor**: `GET /sync?since=<cursor>` devuelve solo lo que cambió, incluidos los borrados.
+- **Cálculos**: dashboard, calendario y saldos de deudas se calculan en el teléfono con las mismas funciones que la API (`@justipe/shared`).
+- **Conflictos**: gana la última escritura. Si el servidor rechaza un cambio (por ejemplo, una categoría borrada), la app lo avisa y lo descarta.
+- **Tipo de cambio sin conexión**: un gasto en US$ usa la última tasa sincronizada. Si no hay ninguna, pide ingresarla a mano.
+- **Token vencido**: la app vuelve a pedir la contraseña y conserva los cambios pendientes. "Cerrar sesión" en Ajustes sí borra los datos del teléfono (avisa si hay pendientes).
+
+### Instalarla en tu celular (EAS Build)
+
+MMKV es código nativo, así que la app **ya no corre en Expo Go**. Necesita un *development build*: tu propia versión de Expo Go con los módulos nativos de la app. Se genera una sola vez en la nube con EAS:
+
+```bash
+npm install -g eas-cli
+eas login                        # cuenta gratuita en expo.dev
+cd apps/mobile
+eas init                         # crea el proyecto y escribe el projectId en app.json (súbelo al repo)
+pnpm build:dev                   # build Android en la nube (~10-15 min)
+```
+
+Al terminar, EAS muestra un QR o link para instalar el APK (hay que permitir "instalar apps desconocidas"). Después:
+
+1. Levanta la API (ver *Desarrollo local*) y pon la IP de tu laptop en `apps/mobile/.env`: `EXPO_PUBLIC_API_URL=http://192.168.x.x:3000`.
+2. `pnpm mobile:start` y abre la app **Justipe** instalada. Se conecta al servidor de desarrollo, con celular y laptop en la misma red WiFi.
+
+Solo hace falta volver a generar el build si cambian las dependencias nativas. Los cambios de código JS llegan al instante.
+
+Para una versión instalable sin laptop (`pnpm build:preview`), la API debe estar en **HTTPS** (fase 6, detrás de Caddy): Android bloquea HTTP en builds que no son de desarrollo.
+
+Vista previa en el navegador: `pnpm mobile:web`, con `CORS_ORIGINS=http://localhost:8081` en el `.env` de la API.
+
+## API
+
+Todas las rutas, salvo `/health` y `/auth/login`, exigen `Authorization: Bearer <token>`.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/health` | Estado de la API y la BD |
+| POST | `/auth/login` | `{ password }` → `{ token, expiresAt }`. Bloquea 15 min tras 5 fallos por IP |
+| GET/POST | `/categories` | Listar (`?type=`) / crear |
+| GET/PATCH/DELETE | `/categories/:id` | Obtener / editar / borrar |
+| GET/POST | `/movements` | Listar (`?from=&to=&type=&categoryId=&debtId=&limit=&offset=`) / crear |
+| GET/PATCH/DELETE | `/movements/:id` | |
+| GET/POST | `/recurring` | Listar / crear (calcula `nextRunOn`) |
+| GET/PATCH/DELETE | `/recurring/:id` | |
+| GET/POST | `/debts` | Listar (`?status=open\|closed\|all&direction=`) con `paidAmount` y `balance` |
+| GET/PATCH/DELETE | `/debts/:id` | |
+| POST | `/recurring/generate` | Genera ahora los recurrentes vencidos |
+| GET | `/dashboard` | Resumen del mes (`?month=YYYY-MM`, por defecto el actual) |
+| GET | `/sync` | Copia completa, o cambios desde `?since=<cursor>` con borrados incluidos. Devuelve un `cursor` nuevo |
+| GET/POST | `/quick-amounts` | Montos rápidos |
+| PATCH/DELETE | `/quick-amounts/:id` | |
+| GET | `/exchange-rates` | Listar (`?from=&to=&limit=`) |
+| GET | `/exchange-rates/latest` | Tasa vigente para `?date=` (por defecto hoy) |
+| POST | `/exchange-rates/sync` | Consulta apis.net.pe ahora (`{ date? }`) |
+| PUT/DELETE | `/exchange-rates/:date` | Editar a mano `{ buy, sell }` / borrar |
+
+Convenciones:
+
+- Los montos viajan como **strings decimales** (`"13.00"`, TC `"3.7512"`) para no perder precisión. Al crear se aceptan números o strings.
+- Las fechas son `YYYY-MM-DD` (hora de Lima).
+- `POST` acepta un `id` generado por el cliente. Si se reintenta con el mismo id, devuelve el registro existente (200), lo que hace seguros los reintentos offline.
+- `DELETE` es un borrado lógico (204).
+- Los errores tienen la forma `{ error: { code, message, details? } }`: 401 sin token, 404, 409 conflicto, 422 validación o regla de negocio, 429 demasiados intentos.
+
+Reglas de negocio:
+
+- La categoría debe existir y ser del mismo tipo que el movimiento o recurrente.
+- **Moneda**: en PEN el TC siempre es 1. En USD sin `exchangeRate` se usa la tasa de venta del día o la última anterior; si no hay ninguna, 422.
+- **Deudas**: un movimiento con `debtId` es un pago. En `i_owe` debe ser gasto y en `owed_to_me`, ingreso, siempre en la moneda de la deuda. El saldo es `initialAmount − pagos vivos`.
+- **Recurrentes**: `nextRunOn` es la primera fecha desde `startOn`, así que un `startOn` pasado genera los periodos atrasados en la fase 3. Si se edita el calendario, se recalcula desde hoy.
+
+### Cambios de esquema
+
+1. Edita los archivos en `apps/api/src/db/schema/`.
+2. `pnpm db:generate` genera la migración SQL en `apps/api/drizzle/`.
+3. Revisa el SQL y súbelo al repo. La API aplica las migraciones pendientes al arrancar (`MIGRATE_ON_START=true`).
+
+### Dashboard
+
+- **Fijo** = movimiento generado por un recurrente; **variable** = el resto.
+- **Te queda** = ingresos − gastos del mes.
+- **Puedes gastar por día** = (te queda − gastos fijos que aún faltan en el mes) ÷ días restantes, incluido hoy, redondeado hacia abajo y nunca negativo.
+- **Ingresos por venir** (por ejemplo, la quincena del 30) se muestran, pero **no se cuentan** en el presupuesto diario hasta que llegan. Es un criterio conservador.
+
+## Tareas programadas
+
+Corren dentro del proceso de la API con [croner](https://github.com/hexagon/croner), sin contenedor extra. Horarios en hora de Lima:
+
+| Tarea | Horario | Qué hace |
+|---|---|---|
+| Recurrentes | 00:05 | Crea los movimientos con `nextRunOn <= hoy`, incluidos los periodos atrasados. Es idempotente |
+| Tipo de cambio | 07:15, 12:15, 18:15 | Consulta SUNAT vía apis.net.pe y lo guarda. Los intentos extra sirven de reintento |
+| Al arrancar | — | Trae el tipo de cambio de hoy si falta y pone al día los recurrentes |
+
+- **Tasas manuales** (`PUT /exchange-rates/:date`): el cron nunca las sobrescribe. Para volver a la automática, borra la tasa con `DELETE`.
+- **Recurrente en USD sin tipo de cambio**: queda pendiente y se reintenta en la siguiente corrida. No avanza ni genera con una tasa inventada.
+- **Recurrente generado y luego borrado**: no se vuelve a crear.
+- **apis.net.pe**: el endpoint v1 funciona sin token, pero limita mucho las peticiones anónimas (429). Por eso se consulta una vez por día y al arrancar solo si falta la tasa. `APIS_NET_PE_TOKEN` es opcional.
+
+## Producción (VPS)
+
+### Cómo funciona el deploy
+
+Al hacer push a `main` (o con *Run workflow* en la pestaña Actions), `.github/workflows/deploy.yml`:
+
+1. Corre CI: typecheck de API y app, y tests contra PostgreSQL 16.
+2. Construye la imagen de la API **en GitHub**, sin gastar la RAM del VPS, y la publica en GHCR como `ghcr.io/<usuario>/justipe-api:<commit>`.
+3. Entra por SSH al VPS, copia `docker-compose.yml` y `scripts/`, y ejecuta `scripts/deploy.sh <imagen>`.
+4. `deploy.sh` levanta la nueva versión y espera a que el healthcheck diga *healthy*. **Si no arranca, vuelve sola a la imagen anterior** y el workflow queda en rojo.
+5. Instala o actualiza el cron de respaldos.
+
+Los cambios que solo tocan `apps/mobile/` o archivos `.md` no disparan deploy. CI corre en cada push y PR.
+
+### Puesta en marcha (una sola vez)
+
+**1. En el VPS** (el usuario debe poder usar docker):
+
+```bash
+sudo mkdir -p /opt/justipe && sudo chown $USER /opt/justipe
+cd /opt/justipe
+nano .env    # copia el contenido de .env.example y completa los valores reales
+             # (APP_PASSWORD_HASH se genera en tu laptop con: pnpm hash-password)
+chmod 600 .env
+```
+
+Agrega `infra/caddy/justipe.caddy` a tu Caddyfile con tu dominio y recarga Caddy. La API queda solo en `127.0.0.1:3000` y Caddy le pone HTTPS.
+
+**2. Llave SSH exclusiva para el deploy** (en tu laptop):
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/justipe_deploy -C "github-actions-justipe" -N ""
+ssh-copy-id -i ~/.ssh/justipe_deploy.pub usuario@tu-vps     # o pégala en ~/.ssh/authorized_keys
+ssh-keyscan -p 22 tu-vps                                     # huella del servidor para VPS_KNOWN_HOSTS
+```
+
+**3. En GitHub** → *Settings → Secrets and variables → Actions*:
+
+| Tipo | Nombre | Valor |
+|---|---|---|
+| Secret | `VPS_HOST` | IP o dominio del VPS |
+| Secret | `VPS_USER` | usuario SSH |
+| Secret | `VPS_SSH_KEY` | contenido de `~/.ssh/justipe_deploy` (la privada) |
+| Secret | `VPS_KNOWN_HOSTS` | salida de `ssh-keyscan` |
+| Variable (opcional) | `VPS_PORT` | puerto SSH si no es 22 |
+| Variable (opcional) | `DEPLOY_PATH` | si no usas `/opt/justipe` |
+
+No hace falta ningún token para GHCR: el workflow usa su token temporal y el VPS lo recibe solo durante el deploy.
+
+**4.** Haz merge a `main` o lanza el workflow a mano. Tras el primer deploy, carga las categorías iniciales:
+
+```bash
+cd /opt/justipe && docker compose --env-file .env --env-file .deploy.env exec api node dist/db/seed.js
+```
+
+### Operación diaria (en el VPS, dentro de `/opt/justipe`)
+
+| Tarea | Comando |
+|---|---|
+| Ver logs | `docker compose --env-file .env --env-file .deploy.env logs -f api` |
+| Versión desplegada | `cat .deploy.env` |
+| Rollback manual | `scripts/deploy.sh ghcr.io/<usuario>/justipe-api:<commit-anterior>` |
+| Respaldo ahora | `scripts/backup.sh` |
+| Restaurar | `scripts/restore.sh backups/justipe-AAAA-MM-DD_HHMMSS.sql.gz` (antes hace un respaldo de seguridad) |
+
+### Respaldos
+
+- **Cuándo**: cron diario a las 03:15 hora de Lima (08:15 UTC). Lo instala el deploy.
+- **Qué**: `pg_dump` comprimido con gzip en `backups/justipe-<fecha>.sql.gz`, con permisos 600. Se valida antes de darlo por bueno (gzip íntegro y esquema presente).
+- **Retención**: 30 días; los más antiguos se borran solos. El log queda en `backups/backup.log`.
+- **Importante**: los respaldos quedan **en el mismo VPS**. Para protegerte de perder el servidor, copia `backups/` a otro lugar de vez en cuando (por ejemplo, `rsync` a tu laptop o `rclone` a un almacenamiento externo).
+
+### Memoria
+
+Postgres está limitado a 256 MB y la API a 128 MB, 384 MB en total (el requisito es menos de 400). En reposo se miden unos 30 MB cada uno.
+
+### Probar el stack en local
+
+```bash
+pnpm compose:up     # construye la imagen desde el código (usa docker-compose.build.yml)
+```

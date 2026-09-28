@@ -1,0 +1,17 @@
+# Snippet para tu Caddyfile existente. Cambia el dominio por el tuyo.
+#
+# Opción A (por defecto): Caddy corre en el host y la API se publica en 127.0.0.1:3000.
+gastos.tudominio.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+}
+
+# Opción B: Caddy corre en un contenedor Docker.
+#   1. En infra/docker-compose.yml, une el servicio "api" a la red de Caddy
+#      (red externa) y quita el bloque "ports".
+#   2. Usa el nombre del servicio como destino:
+#
+# gastos.tudominio.com {
+# 	encode zstd gzip
+# 	reverse_proxy justipe-api-1:3000
+# }
