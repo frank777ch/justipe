@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { env } from '../env.js';
 import * as schema from './schema/index.js';
+import type { Database } from './types.js';
 
 // Pool pequeño a propósito: un solo usuario y Postgres limitado a 20 conexiones.
 export const queryClient = postgres(env.databaseUrl, {
@@ -11,6 +12,4 @@ export const queryClient = postgres(env.databaseUrl, {
   onnotice: () => {},
 });
 
-export const db = drizzle(queryClient, { schema });
-
-export type Database = typeof db;
+export const db: Database = drizzle(queryClient, { schema });

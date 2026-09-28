@@ -70,6 +70,9 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       DB_POOL_MAX: ${DB_POOL_MAX:-5}
       MIGRATE_ON_START: ${MIGRATE_ON_START:-true}
+      JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+      APP_PASSWORD_HASH: ${APP_PASSWORD_HASH:?Falta APP_PASSWORD_HASH en .env}
+      JWT_TTL_DAYS: ${JWT_TTL_DAYS:-30}
       TZ: America/Lima
       NODE_OPTIONS: --max-old-space-size=96
     # Caddy en el host hace reverse_proxy a 127.0.0.1:${API_PORT}

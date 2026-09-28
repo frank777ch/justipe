@@ -11,11 +11,15 @@ WORKDIR /repo
 FROM base AS build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json apps/api/
+COPY packages/shared/package.json packages/shared/
+# "@justipe/api..." instala la API y sus dependencias del workspace (@justipe/shared)
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter @justipe/api...
+COPY packages/shared packages/shared
 COPY apps/api apps/api
+# El build de la API compila primero @justipe/shared
 RUN pnpm --filter @justipe/api build
-# Copia dist/, drizzle/ y solo las dependencias de producción a /out
+# Copia dist/, drizzle/ y solo las dependencias de producción (incluida shared compilada) a /out
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm --filter @justipe/api deploy --prod --legacy /out
 

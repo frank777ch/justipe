@@ -1,26 +1,20 @@
 import { serve } from '@hono/node-server';
-import { Hono } from 'hono';
-import { queryClient } from './db/client.js';
+import { createApp } from './app.js';
+import { db, queryClient } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import { env } from './env.js';
 
-// Fase 1: solo el endpoint de salud que usa el healthcheck de Docker.
-// El resto de rutas llega en la fase 2.
-const app = new Hono();
-
-app.get('/health', async (c) => {
-  try {
-    await queryClient`select 1`;
-    return c.json({ status: 'ok' });
-  } catch {
-    return c.json({ status: 'error', detail: 'database unreachable' }, 503);
-  }
-});
-
+// Punto de entrada del servidor: aplica migraciones, arma la app y escucha.
 if (env.migrateOnStart) {
   await runMigrations();
   console.log('Migraciones al día');
 }
+
+const app = createApp(db, {
+  jwtSecret: env.jwtSecret,
+  passwordHash: env.appPasswordHash,
+  tokenTtlDays: env.jwtTtlDays,
+});
 
 const server = serve({ fetch: app.fetch, port: env.port }, (info) => {
   console.log(`API escuchando en el puerto ${info.port}`);
